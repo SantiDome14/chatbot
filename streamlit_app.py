@@ -1,56 +1,73 @@
 import streamlit as st
-from openai import OpenAI
+from groq import Groq
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
-)
+st.set_page_config(page_title="Mi chat de IA", page_icon="6️⃣", layout="centered")
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
+MODELOS = ['llama3-8b-8192', 'llama3-70b-8192', 'mixtral-8x7b-32768']
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
+def configurar_pagina():
+    st.title("Mi chat de IA")
+    st.sidebar.title("Configuración de la IA")
+    elegirModelo = st.sidebar.selectbox('Elegí un Modelo', options=MODELOS, index=0)
+    return elegirModelo
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+def crear_usuario_groq():
+    clave_secreta = st.secrets["CLAVE_API"]
+    return Groq(api_key=clave_secreta)
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+# Inicializa el estado para evitar errores
+def inicializar_estado():
+    if "mensajes" not in st.session_state:
+        st.session_state.mensajes = []
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+# Llamar a inicializar_estado al principio
+inicializar_estado()
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+def actualizar_historial(rol, contenido, avatar):
+    st.session_state.mensajes.append({"role": rol, "content": contenido, "avatar": avatar})
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+def configurar_modelo(cliente, modelo, mensaje):
+    return cliente.chat.completions.create(
+        model=modelo,
+        messages=[{"role": "user", "content": mensaje}],
+        stream=True
+    )
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
+def mostrar_historial():
+    for mensaje in st.session_state.mensajes:
+        with st.chat_message(mensaje["role"], avatar=mensaje["avatar"]):
+            st.markdown(mensaje["content"])
+
+def area_chat():
+    contenedorDelChat = st.container()
+    # Abrimos el contenedor del chat y mostramos el historial.
+    with contenedorDelChat:
+        mostrar_historial()
+
+def generar_respuesta(chat_completo):
+    respuesta_completa = ""
+    for frase in chat_completo:
+        if frase.choices[0].delta.content:
+            respuesta_completa += frase.choices[0].delta.content
+            yield frase.choices[0].delta.content
+    return respuesta_completa
+
+def main(): 
+    modelo = configurar_pagina()
+    cliente = crear_usuario_groq()
+
+    mensaje = st.chat_input("Escribí tu mensaje:")
+    area_chat()
+
+    if mensaje:
+        actualizar_historial("user", mensaje, "🧑‍💻")
+        chat_completo = configurar_modelo(cliente, modelo, mensaje)
+
+        if chat_completo:
+            with st.chat_message("assistant"):
+                respuesta_completa = st.write_stream(generar_respuesta(chat_completo))
+                actualizar_historial("assistant", respuesta_completa,"🤖")
+        st.rerun()
+if __name__ == "__main__":
+    main() 
         st.session_state.messages.append({"role": "assistant", "content": response})
